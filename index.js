@@ -347,13 +347,61 @@ class EmailDeliverabilityChecker {
         };
     }
 
+    displayRawDNSRecords() {
+        const { checks } = this.results;
+
+        console.log('\n' + '='.repeat(60));
+        console.log('DNS RECORDS FOUND');
+        console.log('='.repeat(60));
+
+        // MX Records
+        if (checks.mxRecords && checks.mxRecords.records && checks.mxRecords.records.length > 0) {
+            console.log('\n📧 MX Records:');
+            checks.mxRecords.records.forEach(record => {
+                console.log(`   ${record.priority} ${record.exchange}`);
+            });
+        } else {
+            console.log('\n📧 MX Records: None found');
+        }
+
+        // SPF Record
+        console.log('\n🛡️  SPF Record:');
+        if (checks.spfRecord && checks.spfRecord.record) {
+            console.log(`   ${checks.spfRecord.record}`);
+        } else {
+            console.log('   None found');
+        }
+
+        // DKIM Records
+        console.log('\n🔐 DKIM Records:');
+        if (checks.dkimRecords && checks.dkimRecords.records && checks.dkimRecords.records.length > 0) {
+            checks.dkimRecords.records.forEach(record => {
+                console.log(`   Selector: ${record.selector}`);
+                console.log(`   Record: ${record.record}`);
+                console.log('');
+            });
+        } else {
+            console.log('   None found');
+        }
+
+        // DMARC Record
+        console.log('📋 DMARC Record:');
+        if (checks.dmarcRecord && checks.dmarcRecord.record) {
+            console.log(`   ${checks.dmarcRecord.record}`);
+        } else {
+            console.log('   None found');
+        }
+    }
+
     generateReport() {
         const { checks, score, maxScore } = this.results;
         const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
 
-        console.log('\n='.repeat(60));
-        console.log(`EMAIL DELIVERABILITY REPORT FOR: ${this.results.domain.toUpperCase()}`);
+        console.log('\n '.repeat(3));
         console.log('='.repeat(60));
+        console.log(`EMAIL DELIVERABILITY ANALYSIS FOR: ${this.results.domain.toUpperCase()}`);
+        console.log('='.repeat(60));
+        console.log('\n')
         console.log(`Generated: ${this.results.timestamp}`);
         console.log(`Overall Score: ${score}/${maxScore} (${percentage}%)`);
 
@@ -370,6 +418,68 @@ class EmailDeliverabilityChecker {
 
             console.log(`${statusIcon} ${checkName.toUpperCase()}`);
             console.log(`   ${result.message} (Score: ${result.score})`);
+
+            // Show detailed analysis
+            if (checkName === 'mxRecords' && result.records && result.records.length > 0) {
+                console.log('   Analysis:');
+                console.log(`   • Primary mail server: ${result.details.primary.exchange} (priority ${result.details.primary.priority})`);
+                if (result.details.backup.length > 0) {
+                    console.log(`   • Backup servers: ${result.details.backup.length}`);
+                } else {
+                    console.log('   • No backup mail servers configured (consider adding for redundancy)');
+                }
+            }
+
+            if (checkName === 'spfRecord' && result.record) {
+                console.log('   Analysis:');
+                if (result.record.includes('include:')) {
+                    const includes = result.record.match(/include:[^\s]+/g);
+                    if (includes) {
+                        console.log(`   • Authorized senders: ${includes.join(', ')}`);
+                    }
+                }
+                if (result.record.includes('ip4:')) {
+                    const ips = result.record.match(/ip4:[^\s]+/g);
+                    if (ips) {
+                        console.log(`   • Authorized IP ranges: ${ips.join(', ')}`);
+                    }
+                }
+            }
+
+            if (checkName === 'dmarcRecord' && result.record) {
+                console.log('   Analysis:');
+                console.log(`   • Policy: ${result.policy}`);
+                const pct = result.record.match(/pct=(\d+)/);
+                if (pct) {
+                    console.log(`   • Percentage applied: ${pct[1]}%`);
+                }
+                const rua = result.record.match(/rua=([^;]+)/);
+                if (rua) {
+                    console.log(`   • Aggregate reports sent to: ${rua[1]}`);
+                }
+                const ruf = result.record.match(/ruf=([^;]+)/);
+                if (ruf) {
+                    console.log(`   • Forensic reports sent to: ${ruf[1]}`);
+                }
+            }
+
+            if (checkName === 'blacklists' && result.results) {
+                console.log('   Analysis:');
+                const blacklisted = result.results.filter(r => r.status === 'blacklisted');
+                const clean = result.results.filter(r => r.status === 'clean');
+                console.log(`   • Clean on ${clean.length} blacklists`);
+                if (blacklisted.length > 0) {
+                    console.log(`   • Found on: ${blacklisted.map(b => b.blacklist).join(', ')}`);
+                }
+            }
+
+            if (checkName === 'mailServerConnectivity' && result.results) {
+                console.log('   Analysis:');
+                result.results.forEach(server => {
+                    const status = server.status === 'connectable' ? '✓' : '✗';
+                    console.log(`   ${status} ${server.server} (priority ${server.priority})`);
+                });
+            }
 
             if (result.recommendations && result.recommendations.length > 0) {
                 console.log('   Recommendations:');
@@ -445,6 +555,10 @@ class EmailDeliverabilityChecker {
             }
         });
 
+        // Display raw DNS records first
+        this.displayRawDNSRecords();
+
+        // Then generate analysis report
         this.generateReport();
         return this.results;
     }
