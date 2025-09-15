@@ -1,0 +1,18 @@
+{
+  "name": "dns-check-for-mail",
+  "version": "1.0.0",
+  "description": "Comprehensive domain email deliverability checker",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "dns": "^0.2.2",
+    "net": "^1.0.2"
+  },
+  "keywords": ["dns", "email", "deliverability", "domain", "checker"],
+  "author": "",
+  "license": "MIT"
+}
