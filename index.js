@@ -269,19 +269,44 @@ class EmailDeliverabilityChecker {
 
         for (const mx of mxRecords) {
             const server = mx.exchange;
+            console.log(`   Testing connection to ${server}:25...`);
+
             try {
                 await new Promise((resolve, reject) => {
                     const socket = net.createConnection(25, server);
+                    let connected = false;
 
-                    socket.setTimeout(5000);
+                    socket.setTimeout(10000); // Увеличил таймаут до 10 секунд
 
                     socket.on('connect', () => {
+                        connected = true;
                         socket.destroy();
                         resolve();
                     });
 
-                    socket.on('error', reject);
-                    socket.on('timeout', () => reject(new Error('Connection timeout')));
+                    socket.on('error', (error) => {
+                        if (!connected) {
+                            // Более детальная информация об ошибке
+                            let errorType = 'Connection failed';
+                            if (error.code === 'ECONNREFUSED') {
+                                errorType = 'Connection refused (port may be closed)';
+                            } else if (error.code === 'ETIMEDOUT') {
+                                errorType = 'Connection timeout (firewall or network issue)';
+                            } else if (error.code === 'EHOSTUNREACH') {
+                                errorType = 'Host unreachable';
+                            } else if (error.code === 'ENETUNREACH') {
+                                errorType = 'Network unreachable';
+                            }
+                            reject(new Error(`${errorType}: ${error.code || error.message}`));
+                        }
+                    });
+
+                    socket.on('timeout', () => {
+                        if (!connected) {
+                            socket.destroy();
+                            reject(new Error('Connection timeout after 10 seconds'));
+                        }
+                    });
                 });
 
                 results.push({
@@ -290,6 +315,7 @@ class EmailDeliverabilityChecker {
                     status: 'connectable'
                 });
                 connectableServers++;
+                console.log(`   ✓ ${server} - Connected successfully`);
             } catch (error) {
                 results.push({
                     server,
@@ -297,10 +323,18 @@ class EmailDeliverabilityChecker {
                     status: 'not connectable',
                     error: error.message
                 });
+                console.log(`   ✗ ${server} - ${error.message}`);
             }
         }
 
         const score = connectableServers > 0 ? 10 : 0;
+
+        // Добавляем предупреждение если все соединения не удались
+        const warnings = [];
+        if (connectableServers === 0) {
+            warnings.push('Note: Port 25 may be blocked by your ISP or firewall');
+            warnings.push('This doesn\'t necessarily mean the mail servers are down');
+        }
 
         return {
             status: connectableServers > 0 ? 'pass' : 'fail',
@@ -308,7 +342,8 @@ class EmailDeliverabilityChecker {
             score,
             connectableServers,
             totalServers: mxRecords.length,
-            results
+            results,
+            warnings
         };
     }
 
@@ -477,8 +512,16 @@ class EmailDeliverabilityChecker {
                 console.log('   Analysis:');
                 result.results.forEach(server => {
                     const status = server.status === 'connectable' ? '✓' : '✗';
-                    console.log(`   ${status} ${server.server} (priority ${server.priority})`);
+                    const errorInfo = server.error ? ` - ${server.error}` : '';
+                    console.log(`   ${status} ${server.server} (priority ${server.priority})${errorInfo}`);
                 });
+
+                if (result.warnings && result.warnings.length > 0) {
+                    console.log('   Warnings:');
+                    result.warnings.forEach(warning => {
+                        console.log(`   ⚠️ ${warning}`);
+                    });
+                }
             }
 
             if (result.recommendations && result.recommendations.length > 0) {
